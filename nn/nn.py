@@ -3,18 +3,46 @@ import numpy as np
 import lasagne as lnn
 import dmgr
 
-from collections import namedtuple
 from utils import Timer, Colors
 
 
-NeuralNetwork = namedtuple('NeuralNetwork', 'network train test process')
-NeuralNetwork.__doc__ = """
-Neural Network. Has four fields:
- - network: lasagne neural network output layer
- - train:   theano function for training
- - test:    theano function for testing
- - process: theano function to process data, without computing loss
-"""
+class NeuralNetwork(object):
+    """
+    Neural Network. Simple class that holds theano functions for training,
+    testing, and processing, plus the lasagne output layer.
+    """
+
+    def __init__(self, network, train, test, process):
+        """
+        Initialises the neural network class.
+
+        :param network: lasagne neural network output layer
+        :param train:   theano function for training
+        :param test:    theano function for testing
+        :param process: theano function to process data, without computing loss
+        """
+        self.network = network
+        self.train = train
+        self.test = test
+        self.process = process
+
+    def __str__(self):
+        """
+        Writes the layers of a neural network to a string
+        :return: string containing a human-readable description of the
+                 network's layers
+        """
+        repr_str = ''
+
+        for layer in lnn.layers.get_all_layers(self.network):
+            if isinstance(layer, lnn.layers.DropoutLayer):
+                repr_str += '\t -> dropout p = {:.1f}\n'.format(layer.p)
+                continue
+
+            repr_str += '\t{} - {}\n'.format(layer.output_shape, layer.name)
+
+        # return everything except the last newline
+        return repr_str[:-1]
 
 
 def process_batches(batches, func, timer=None):
@@ -118,22 +146,3 @@ def train(network, train_set, n_epochs, batch_size,
 
     return best_params
 
-
-def to_string(network):
-    """
-    Writes the layers of a neural network to a string
-    :param network: output layer of a lasagne neural network
-    :return:        string containing a human-readable description of the
-                    network's layers
-    """
-    repr_str = ''
-
-    for layer in lnn.layers.get_all_layers(network):
-        if isinstance(layer, lnn.layers.DropoutLayer):
-            repr_str += '\t -> dropout p = {:.1f}\n'.format(layer.p)
-            continue
-
-        repr_str += '\t{} - {}\n'.format(layer.output_shape, layer.name)
-
-    # return everything except the last newline
-    return repr_str[:-1]
