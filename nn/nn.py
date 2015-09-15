@@ -78,7 +78,7 @@ def train(network, train_set, n_epochs, batch_size,
           validation_set=None, early_stop=np.inf):
     """
     Trains a neural network.
-    :param network:        NeuralNetwork named tuple.
+    :param network:        NeuralNetwork object.
     :param train_set:      dataset to use for training (see dmgr.datasources)
     :param n_epochs:       maximum number of epochs to train
     :param batch_size:     batch size for training
