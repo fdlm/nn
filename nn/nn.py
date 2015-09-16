@@ -47,9 +47,33 @@ class NeuralNetwork(object):
 
 def process_batches(batches, func, timer=None):
     """
+    Processes batches and collects the predictions for each data point
+    :param batches: batch generator. yields inputs and targets
+    :param func:    theano function computing the predictions
+    :param timer:   utils.Timer object for function timing. if None, there
+                    will be no timing
+    :return:        numpy array containing the predictions (one per line)
+    """
+
+    predictions = []
+
+    for inputs, targets in batches:
+        if timer:
+            timer.start('theano')
+
+        predictions.append(func(inputs))
+
+        if timer:
+            timer.pause('theano')
+
+    return np.vstack(predictions)
+
+
+def avg_batch_loss(batches, func, timer=None):
+    """
     Processes batches, calculates the average loss and computes
     the time needed to compute the function, without getting the data.
-    :param batches: batch generator. yields inputs and targetse.
+    :param batches: batch generator. yields inputs and targets.
     :param func:    theano function to apply to the batch
     :param timer:   utils.Timer object for function timing. if None, there
                     will be no timing.
@@ -72,6 +96,14 @@ def process_batches(batches, func, timer=None):
         timer.stop('theano')
 
     return total_loss / n_batches
+
+
+def predict(network, dataset, batch_size):
+    return process_batches(
+        dmgr.iterators.iterate_batches(dataset, batch_size, shuffle=False,
+                                       expand=False),
+        network.process
+    )
 
 
 def train(network, train_set, n_epochs, batch_size,
@@ -101,7 +133,7 @@ def train(network, train_set, n_epochs, batch_size,
         timer.start('epoch')
         timer.start('train')
 
-        train_loss = process_batches(
+        train_loss = avg_batch_loss(
             dmgr.iterators.iterate_batches(train_set, batch_size, shuffle=True),
             network.train,
             timer
@@ -113,7 +145,7 @@ def train(network, train_set, n_epochs, batch_size,
             batches = dmgr.iterators.iterate_batches(
                 validation_set, batch_size, shuffle=False
             )
-            val_loss = process_batches(batches, network.test)
+            val_loss = avg_batch_loss(batches, network.test)
 
         print('Ep. {}/{} {:.1f}s (tr: {:.1f}s th: {:.1f}s)'.format(
             epoch + 1, n_epochs,
