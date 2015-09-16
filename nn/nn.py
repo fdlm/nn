@@ -107,7 +107,7 @@ def predict(network, dataset, batch_size):
 
 
 def train(network, train_set, n_epochs, batch_size,
-          validation_set=None, early_stop=np.inf):
+          validation_set=None, early_stop=np.inf, threaded=None):
     """
     Trains a neural network.
     :param network:        NeuralNetwork object.
@@ -117,6 +117,8 @@ def train(network, train_set, n_epochs, batch_size,
     :param validation_set: dataset to use for validation (see dmgr.datasources)
     :param early_stop:     number of iterations without loss improvement on
                            validation set that stops training
+    :param threaded:       number of batches to prepare in a separate thread
+                           if 'None', do not use threading
     :return:               best found parameters. if validation set is given,
                            the parameters that have the smallest loss on the
                            validation set. if no validation set is given,
@@ -133,8 +135,14 @@ def train(network, train_set, n_epochs, batch_size,
         timer.start('epoch')
         timer.start('train')
 
+        train_batches = dmgr.iterators.iterate_batches(
+            train_set, batch_size, shuffle=True)
+
+        if threaded:
+            train_batches = dmgr.iterators.threaded(train_batches, threaded)
+
         train_loss = avg_batch_loss(
-            dmgr.iterators.iterate_batches(train_set, batch_size, shuffle=True),
+            train_batches,
             network.train,
             timer
         )
