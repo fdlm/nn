@@ -1,9 +1,11 @@
 from __future__ import print_function
+import cPickle as pickle
 import numpy as np
 import lasagne as lnn
 import dmgr
 
 from utils import Timer, Colors
+
 
 
 class NeuralNetwork(object):
@@ -26,6 +28,37 @@ class NeuralNetwork(object):
         self.test = test
         self.process = process
 
+    def get_parameters(self):
+        """
+        Get the neural network's parameters (weights, biases, ...)
+        :return: parameterse
+        """
+        return lnn.layers.get_all_param_values(self.network)
+
+    def set_parameters(self, parameters):
+        """
+        Sets the neural network's parameters (weights, biases, ...)
+        :param parameters: parameters to be set
+        """
+        lnn.layers.set_all_param_values(self.network, parameters)
+
+    def save_parameters(self, filename):
+        """
+        Saves the neural network's parameters (weights, biases, ...) to a file.
+        :param filename: file to store the parameters to
+        """
+        with open(filename, 'w') as f:
+            pickle.dump(self.get_parameters(), f, protocol=-1)
+
+    def load_parameters(self, filename):
+        """
+        Loads the neural network's parameters from a file.
+        :param filename: file to load the parameters from
+        """
+        with open(filename, 'r') as f:
+            params = pickle.load(f)
+        self.set_parameters(params)
+
     def __str__(self):
         """
         Writes the layers of a neural network to a string
@@ -43,31 +76,6 @@ class NeuralNetwork(object):
 
         # return everything except the last newline
         return repr_str[:-1]
-
-
-def process_batches(batches, func, timer=None):
-    """
-    Processes batches and collects the predictions for each data point
-    :param batches: batch generator. yields inputs and targets
-    :param func:    theano function computing the predictions
-    :param timer:   utils.Timer object for function timing. if None, there
-                    will be no timing
-    :return:        numpy array containing the predictions (one per line)
-    """
-
-    predictions = []
-
-    for batch in batches:
-        if timer:
-            timer.start('theano')
-
-        # skip the targets (last element)
-        predictions.append(func(*(batch[:-1])))
-
-        if timer:
-            timer.pause('theano')
-
-    return np.vstack(predictions)
 
 
 def avg_batch_loss(batches, func, timer=None):
@@ -102,16 +110,48 @@ def avg_batch_loss(batches, func, timer=None):
 
 
 def predict(network, dataset, batch_size,
-            batch_iterator=dmgr.iterators.iterate_batches):
-    return process_batches(
-        batch_iterator(dataset, batch_size, shuffle=False, expand=False),
-        network.process
+            batch_iterator=dmgr.iterators.iterate_batches, **kwargs):
+    """
+    Processes the dataset and return predictions for each instance.
+    """
+
+    predictions = []
+
+    batches = batch_iterator(
+        dataset, batch_size, shuffle=False, expand=False, **kwargs
     )
+
+    for batch in batches:
+        # skip the targets (last element)
+        predictions.append(network.process(*(batch[:-1])))
+
+    return np.vstack(predictions)
+
+
+def predict_rnn(network, dataset, batch_size,
+            batch_iterator=dmgr.iterators.iterate_batches, **kwargs):
+    """
+    Processes the dataset and return predictions for each instance.
+    """
+
+    predictions = []
+
+    batches = batch_iterator(
+        dataset, batch_size, shuffle=False, expand=False, **kwargs
+    )
+
+    for batch in batches:
+        # skip the targets (last element)
+        p = network.process(*(batch[:-1]))
+        mask = batch[-2]
+        predictions.append(p[mask.astype(bool)])
+
+    return np.vstack(predictions)
 
 
 def train(network, train_set, n_epochs, batch_size,
           validation_set=None, early_stop=np.inf, threaded=None,
-          batch_iterator=dmgr.iterators.iterate_batches):
+          batch_iterator=dmgr.iterators.iterate_batches, **kwargs):
     """
     Trains a neural network.
     :param network:        NeuralNetwork object.
@@ -124,6 +164,7 @@ def train(network, train_set, n_epochs, batch_size,
     :param threaded:       number of batches to prepare in a separate thread
                            if 'None', do not use threading
     :param batch_iterator: batch iterator to use
+    :param **kwargs:       parameters to pass to the batch_iterator
     :return:               best found parameters. if validation set is given,
                            the parameters that have the smallest loss on the
                            validation set. if no validation set is given,
@@ -141,7 +182,7 @@ def train(network, train_set, n_epochs, batch_size,
         timer.start('train')
 
         train_batches = batch_iterator(
-            train_set, batch_size, shuffle=True)
+            train_set, batch_size, shuffle=True, **kwargs)
 
         if threaded:
             train_batches = dmgr.iterators.threaded(train_batches, threaded)
@@ -156,7 +197,7 @@ def train(network, train_set, n_epochs, batch_size,
 
         if validation_set:
             batches = batch_iterator(
-                validation_set, batch_size, shuffle=False
+                validation_set, batch_size, shuffle=False, **kwargs
             )
             val_loss = avg_batch_loss(batches, network.test)
 
