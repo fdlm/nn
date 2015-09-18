@@ -57,11 +57,12 @@ def process_batches(batches, func, timer=None):
 
     predictions = []
 
-    for inputs, targets in batches:
+    for batch in batches:
         if timer:
             timer.start('theano')
 
-        predictions.append(func(inputs))
+        # skip the targets (last element)
+        predictions.append(func(*(batch[:-1])))
 
         if timer:
             timer.pause('theano')
@@ -82,15 +83,17 @@ def avg_batch_loss(batches, func, timer=None):
     total_loss = 0.
     n_batches = 0
 
-    for inputs, targets in batches:
+    for batch in batches:
         if timer:
             timer.start('theano')
 
-        total_loss += func(inputs, targets)
+        total_loss += func(*batch)
         n_batches += 1
 
         if timer:
             timer.pause('theano')
+            print('Training... {:.2f}s  tl: {:.3f}'.format(
+                timer['train'], total_loss / n_batches), end='\r')
 
     if timer:
         timer.stop('theano')
@@ -98,16 +101,17 @@ def avg_batch_loss(batches, func, timer=None):
     return total_loss / n_batches
 
 
-def predict(network, dataset, batch_size):
+def predict(network, dataset, batch_size,
+            batch_iterator=dmgr.iterators.iterate_batches):
     return process_batches(
-        dmgr.iterators.iterate_batches(dataset, batch_size, shuffle=False,
-                                       expand=False),
+        batch_iterator(dataset, batch_size, shuffle=False, expand=False),
         network.process
     )
 
 
 def train(network, train_set, n_epochs, batch_size,
-          validation_set=None, early_stop=np.inf, threaded=None):
+          validation_set=None, early_stop=np.inf, threaded=None,
+          batch_iterator=dmgr.iterators.iterate_batches):
     """
     Trains a neural network.
     :param network:        NeuralNetwork object.
@@ -119,6 +123,7 @@ def train(network, train_set, n_epochs, batch_size,
                            validation set that stops training
     :param threaded:       number of batches to prepare in a separate thread
                            if 'None', do not use threading
+    :param batch_iterator: batch iterator to use
     :return:               best found parameters. if validation set is given,
                            the parameters that have the smallest loss on the
                            validation set. if no validation set is given,
@@ -135,7 +140,7 @@ def train(network, train_set, n_epochs, batch_size,
         timer.start('epoch')
         timer.start('train')
 
-        train_batches = dmgr.iterators.iterate_batches(
+        train_batches = batch_iterator(
             train_set, batch_size, shuffle=True)
 
         if threaded:
@@ -150,7 +155,7 @@ def train(network, train_set, n_epochs, batch_size,
         timer.stop('train')
 
         if validation_set:
-            batches = dmgr.iterators.iterate_batches(
+            batches = batch_iterator(
                 validation_set, batch_size, shuffle=False
             )
             val_loss = avg_batch_loss(batches, network.test)
