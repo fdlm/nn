@@ -129,7 +129,7 @@ def predict(network, dataset, batch_size,
 
 
 def predict_rnn(network, dataset, batch_size,
-            batch_iterator=dmgr.iterators.iterate_batches, **kwargs):
+                batch_iterator=dmgr.iterators.iterate_batches, **kwargs):
     """
     Processes the dataset and return predictions for each instance.
     """
@@ -151,7 +151,8 @@ def predict_rnn(network, dataset, batch_size,
 
 def train(network, train_set, n_epochs, batch_size,
           validation_set=None, early_stop=np.inf, threaded=None,
-          batch_iterator=dmgr.iterators.iterate_batches, **kwargs):
+          batch_iterator=dmgr.iterators.iterate_batches,
+          save_params=False, **kwargs):
     """
     Trains a neural network.
     :param network:        NeuralNetwork object.
@@ -164,6 +165,10 @@ def train(network, train_set, n_epochs, batch_size,
     :param threaded:       number of batches to prepare in a separate thread
                            if 'None', do not use threading
     :param batch_iterator: batch iterator to use
+    :param save_params:    save neural network parameters after each epoch. If
+                           False, do not save. Provide a filename with an int
+                           formatter so the epoch number can be inserted if you
+                           want to save the parameters.
     :param **kwargs:       parameters to pass to the batch_iterator
     :return:               best found parameters. if validation set is given,
                            the parameters that have the smallest loss on the
@@ -192,6 +197,9 @@ def train(network, train_set, n_epochs, batch_size,
             network.train,
             timer
         )
+
+        if save_params:
+            network.save_parameters(save_params.format(epoch))
 
         timer.stop('train')
 
