@@ -1,11 +1,11 @@
 from __future__ import print_function
+import sys
 import cPickle as pickle
 import numpy as np
 import lasagne as lnn
 import dmgr
 
 from utils import Timer, Colors
-
 
 
 class NeuralNetwork(object):
@@ -98,6 +98,9 @@ def avg_batch_loss(batches, func, timer=None):
         total_loss += func(*batch)
         n_batches += 1
 
+        if np.isnan(total_loss):
+            raise RuntimeError('NaN loss!')
+
         if timer:
             timer.pause('theano')
             print('Training... {:.2f}s  tl: {:.3f}'.format(
@@ -179,7 +182,7 @@ def train(network, train_set, n_epochs, batch_size,
     best_val_loss = np.inf
     epochs_since_best_val_loss = 0
 
-    best_params = lnn.layers.get_all_param_values(network.network)
+    best_params = network.get_parameters()
 
     for epoch in range(n_epochs):
         timer = Timer()
@@ -192,16 +195,17 @@ def train(network, train_set, n_epochs, batch_size,
         if threaded:
             train_batches = dmgr.iterators.threaded(train_batches, threaded)
 
-        train_loss = avg_batch_loss(
-            train_batches,
-            network.train,
-            timer
-        )
+        try:
+            train_loss = avg_batch_loss(train_batches, network.train, timer)
+        except RuntimeError as e:
+            print(Colors.red('Error during training:'), file=sys.stderr)
+            print(Colors.red(str(e)), file=sys.stderr)
+            return best_params
+
+        timer.stop('train')
 
         if save_params:
             network.save_parameters(save_params.format(epoch))
-
-        timer.stop('train')
 
         if validation_set:
             batches = batch_iterator(
@@ -239,4 +243,3 @@ def train(network, train_set, n_epochs, batch_size,
         print('')
 
     return best_params
-
