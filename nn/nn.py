@@ -132,7 +132,7 @@ def predict(network, dataset, batch_size,
 
 
 def predict_rnn(network, dataset, batch_size,
-                batch_iterator=dmgr.iterators.iterate_batches, **kwargs):
+                batch_iterator=dmgr.iterators.iterate_datasources, **kwargs):
     """
     Processes the dataset and return predictions for each instance.
     """
