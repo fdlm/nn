@@ -211,6 +211,8 @@ def train(network, train_set, n_epochs, batch_size,
             batches = batch_iterator(
                 validation_set, batch_size, shuffle=False, **kwargs
             )
+            if threaded:
+                batches = dmgr.iterators.threaded(batches, threaded)
             val_loss = avg_batch_loss(batches, network.test)
 
         print('Ep. {}/{} {:.1f}s (tr: {:.1f}s th: {:.1f}s)'.format(
