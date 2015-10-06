@@ -4,6 +4,7 @@ import cPickle as pickle
 import numpy as np
 import lasagne as lnn
 import dmgr
+from madmom.evaluation import SimpleEvaluation
 
 from utils import Timer, Colors
 
@@ -129,6 +130,36 @@ def predict(network, dataset, batch_size,
         predictions.append(network.process(*(batch[:-1])))
 
     return np.vstack(predictions)
+
+
+def evaluate(network, dataset, batch_size, eval_func,
+             batch_iterator=dmgr.iterators.iterate_batches,
+             **kwargs):
+    """
+    Processes the dataset and evaluates the results, assuming the targets
+    are in one-hot notation
+    :param network:        neural network used for prediction
+    :param dataset:        dataset to process
+    :param batch_size:     processing batch size
+    :param eval_func:      function computing tp, fp, tn, fn given predictions
+                           and targets
+    :param batch_iterator: which iterator to use
+    :param kwargs:         additional parameters for the batch_iterator
+    :return:               madmom SimpleEvaluation
+    """
+
+    batches = batch_iterator(
+        dataset, batch_size, shuffle=False, expand=False, **kwargs
+    )
+
+    total_eval = SimpleEvaluation()
+
+    for batch in batches:
+        # skip the targets (last element)
+        pred = network.process(*(batch[:-1]))
+        total_eval += SimpleEvaluation(*eval_func(pred, batch[-1]))
+
+    return total_eval
 
 
 def predict_rnn(network, dataset, batch_size,
