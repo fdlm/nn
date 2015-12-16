@@ -186,7 +186,7 @@ def predict_rnn(network, dataset, batch_size,
 def train(network, train_set, n_epochs, batch_size,
           validation_set=None, early_stop=np.inf, threaded=None,
           batch_iterator=dmgr.iterators.iterate_batches,
-          save_params=False, **kwargs):
+          save_params=False, updates=None, **kwargs):
     """
     Trains a neural network.
     :param network:        NeuralNetwork object.
@@ -203,6 +203,10 @@ def train(network, train_set, n_epochs, batch_size,
                            False, do not save. Provide a filename with an int
                            formatter so the epoch number can be inserted if you
                            want to save the parameters.
+    :param updates:        List of functions to call after each epoch. Can
+                           be used to update learn rates, for example. Functions
+                           have to accept one parameter, which is the epoch
+                           number
     :param **kwargs:       parameters to pass to the batch_iterator
     :return:               best found parameters. if validation set is given,
                            the parameters that have the smallest loss on the
@@ -212,6 +216,9 @@ def train(network, train_set, n_epochs, batch_size,
 
     best_val_loss = np.inf
     epochs_since_best_val_loss = 0
+
+    if updates is None:
+        updates = []
 
     best_params = network.get_parameters()
 
@@ -274,5 +281,8 @@ def train(network, train_set, n_epochs, batch_size,
             best_params = lnn.layers.get_all_param_values(network.network)
 
         print('')
+
+        for upd in updates:
+            upd(epoch)
 
     return best_params
