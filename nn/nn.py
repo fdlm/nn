@@ -221,6 +221,8 @@ def train(network, train_set, n_epochs, batch_size,
         updates = []
 
     best_params = network.get_parameters()
+    train_losses = []
+    val_losses = []
 
     for epoch in range(n_epochs):
         timer = Timer()
@@ -234,7 +236,9 @@ def train(network, train_set, n_epochs, batch_size,
             train_batches = dmgr.iterators.threaded(train_batches, threaded)
 
         try:
-            train_loss = avg_batch_loss(train_batches, network.train, timer)
+            train_losses.append(
+                avg_batch_loss(train_batches, network.train, timer)
+            )
         except RuntimeError as e:
             print(Colors.red('Error during training:'), file=sys.stderr)
             print(Colors.red(str(e)), file=sys.stderr)
@@ -251,19 +255,19 @@ def train(network, train_set, n_epochs, batch_size,
             )
             if threaded:
                 batches = dmgr.iterators.threaded(batches, threaded)
-            val_loss = avg_batch_loss(batches, network.test)
+            val_losses.append(avg_batch_loss(batches, network.test))
 
         print('Ep. {}/{} {:.1f}s (tr: {:.1f}s th: {:.1f}s)'.format(
             epoch + 1, n_epochs,
             timer['epoch'], timer['train'], timer['theano']),
               end='')
-        print('  tl: {:.6f}'.format(train_loss), end='')
+        print('  tl: {:.6f}'.format(train_losses[-1]), end='')
 
         if validation_set:
             # early stopping
-            if val_loss < best_val_loss:
+            if val_losses[-1] < best_val_loss:
                 epochs_since_best_val_loss = 0
-                best_val_loss = val_loss
+                best_val_loss = val_losses[-1]
                 best_params = lnn.layers.get_all_param_values(network.network)
                 # green output
                 c = Colors.green
@@ -272,7 +276,7 @@ def train(network, train_set, n_epochs, batch_size,
                 # neutral output
                 c = lambda x: x
 
-            print(c('  vl: {:.6f}'.format(val_loss)), end='')
+            print(c('  vl: {:.6f}'.format(val_losses[-1])), end='')
 
             if epochs_since_best_val_loss >= early_stop:
                 print(Colors.yellow('\nEARLY STOPPING!'))
@@ -285,4 +289,4 @@ def train(network, train_set, n_epochs, batch_size,
         for upd in updates:
             upd(epoch)
 
-    return best_params
+    return best_params, train_losses, val_losses
