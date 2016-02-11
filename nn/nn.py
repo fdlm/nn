@@ -113,6 +113,22 @@ def avg_batch_loss(batches, func, timer=None):
     return total_loss / n_batches
 
 
+def avg_batch_loss_acc(batches, func):
+    total_loss = 0.
+    total_correct = 0
+    n_batches = 0
+
+    for batch in batches:
+        loss, pred = func(*batch)
+        n_batches += 1
+        total_loss += loss
+        p = pred.reshape(-1, pred.shape[-1])  # flatten predictions and gt
+        t = batch[-1].reshape(-1, pred.shape[-1])
+        total_correct += (p.argmax(1) == t.argmax(1)).mean()
+
+    return total_loss / n_batches, float(total_correct) / n_batches
+
+
 def predict(network, dataset, batch_size,
             batch_iterator=dmgr.iterators.iterate_batches, **kwargs):
     """
@@ -223,6 +239,7 @@ def train(network, train_set, n_epochs, batch_size,
     best_params = network.get_parameters()
     train_losses = []
     val_losses = []
+    val_accs = []
 
     for epoch in range(n_epochs):
         timer = Timer()
@@ -255,12 +272,14 @@ def train(network, train_set, n_epochs, batch_size,
             )
             if threaded:
                 batches = dmgr.iterators.threaded(batches, threaded)
-            val_losses.append(avg_batch_loss(batches, network.test))
+            val_loss, val_acc = avg_batch_loss_acc(batches, network.test)
+            val_losses.append(val_loss)
+            val_accs.append(val_acc)
 
         print('Ep. {}/{} {:.1f}s (tr: {:.1f}s th: {:.1f}s)'.format(
             epoch + 1, n_epochs,
             timer['epoch'], timer['train'], timer['theano']),
-              end='')
+            end='')
         print('  tl: {:.6f}'.format(train_losses[-1]), end='')
 
         if validation_set:
@@ -277,6 +296,7 @@ def train(network, train_set, n_epochs, batch_size,
                 c = lambda x: x
 
             print(c('  vl: {:.6f}'.format(val_losses[-1])), end='')
+            print(c('  vacc: {:.6f}'.format(val_accs[-1])), end='')
 
             if epochs_since_best_val_loss >= early_stop:
                 print(Colors.yellow('\nEARLY STOPPING!'))
