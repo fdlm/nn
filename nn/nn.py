@@ -220,10 +220,10 @@ def train(network, train_set, n_epochs, batch_size,
                            formatter so the epoch number can be inserted if you
                            want to save the parameters.
     :param updates:        List of functions to call after each epoch. Can
-                           be used to update learn rates, for example. Functions
-                           have to accept one parameter, which is the epoch
-                           number
-    :param **kwargs:       parameters to pass to the batch_iterator
+                           be used to update learn rates, for example.
+                           unctions have to accept one parameter, which is the
+                           epoch number
+    :param kwargs:         parameters to pass to the batch_iterator
     :return:               best found parameters. if validation set is given,
                            the parameters that have the smallest loss on the
                            validation set. if no validation set is given,
@@ -287,7 +287,7 @@ def train(network, train_set, n_epochs, batch_size,
             if val_losses[-1] < best_val_loss:
                 epochs_since_best_val_loss = 0
                 best_val_loss = val_losses[-1]
-                best_params = lnn.layers.get_all_param_values(network.network)
+                best_params = network.get_parameters()
                 # green output
                 c = Colors.green
             else:
@@ -302,7 +302,7 @@ def train(network, train_set, n_epochs, batch_size,
                 print(Colors.yellow('\nEARLY STOPPING!'))
                 break
         else:
-            best_params = lnn.layers.get_all_param_values(network.network)
+            best_params = network.get_parameters()
 
         print('')
 
