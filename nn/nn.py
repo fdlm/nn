@@ -115,7 +115,8 @@ def avg_batch_loss(batches, func, timer=None):
 
 def avg_batch_loss_acc(batches, func):
     total_loss = 0.
-    total_correct = 0
+    total_correct = 0.
+    total_weight = 0.
     n_batches = 0
 
     for batch in batches:
@@ -124,9 +125,17 @@ def avg_batch_loss_acc(batches, func):
         total_loss += loss
         p = pred.reshape(-1, pred.shape[-1])  # flatten predictions and gt
         t = batch[-1].reshape(-1, pred.shape[-1])
-        total_correct += (p.argmax(1) == t.argmax(1)).mean()
 
-    return total_loss / n_batches, float(total_correct) / n_batches
+        correct_predictions = p.argmax(1) == t.argmax(1)
+        if len(batch) < 3:  # no mask!
+            total_correct += correct_predictions.mean()
+            total_weight += 1
+        else:  # we have a mask!
+            m = batch[1].flatten()
+            total_correct += (correct_predictions * m).mean()
+            total_weight += m.mean()
+
+    return total_loss / n_batches, total_correct / total_weight
 
 
 def predict(network, dataset, batch_size,
@@ -200,8 +209,8 @@ def predict_rnn(network, dataset, batch_size,
 
 
 def train(network, train_set, n_epochs, batch_size,
-          validation_set=None, early_stop=np.inf, threaded=None,
-          batch_iterator=dmgr.iterators.iterate_batches,
+          validation_set=None, early_stop=np.inf, early_stop_acc=False,
+          threaded=None, batch_iterator=dmgr.iterators.iterate_batches,
           save_params=False, updates=None, **kwargs):
     """
     Trains a neural network.
@@ -212,6 +221,8 @@ def train(network, train_set, n_epochs, batch_size,
     :param validation_set: dataset to use for validation (see dmgr.datasources)
     :param early_stop:     number of iterations without loss improvement on
                            validation set that stops training
+    :param early_stop_acc: sets if early stopping should be based on the loss
+                           or the accuracy on the training set
     :param threaded:       number of batches to prepare in a separate thread
                            if 'None', do not use threading
     :param batch_iterator: batch iterator to use
@@ -230,7 +241,7 @@ def train(network, train_set, n_epochs, batch_size,
                            parameters after the last epoch
     """
 
-    best_val_loss = np.inf
+    best_val = np.inf if not early_stop_acc else 0.0
     epochs_since_best_val_loss = 0
 
     if updates is None:
@@ -284,9 +295,10 @@ def train(network, train_set, n_epochs, batch_size,
 
         if validation_set:
             # early stopping
-            if val_losses[-1] < best_val_loss:
+            cmp_val = val_losses[-1] if not early_stop_acc else -val_accs[-1]
+            if cmp_val < best_val:
                 epochs_since_best_val_loss = 0
-                best_val_loss = val_losses[-1]
+                best_val = cmp_val
                 best_params = network.get_parameters()
                 # green output
                 c = Colors.green
