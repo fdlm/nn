@@ -68,9 +68,21 @@ class NeuralNetwork(object):
         """
         repr_str = ''
 
+        skip_next = False
+
         for layer in lnn.layers.get_all_layers(self.network):
+            if skip_next:
+                skip_next = False
+                continue
+
             if isinstance(layer, lnn.layers.DropoutLayer):
-                repr_str += '\t -> dropout p = {:.1f}\n'.format(layer.p)
+                repr_str += '\t -> dropout p = {:g}\n'.format(layer.p)
+                continue
+            if isinstance(layer, lnn.layers.BatchNormLayer):
+                repr_str += '\t -> batch norm\n'
+                # skip next layer, which is the nonlinearity of the original
+                # layer
+                skip_next = True
                 continue
 
             repr_str += '\t{} - {}\n'.format(layer.output_shape, layer.name)
