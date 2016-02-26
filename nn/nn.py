@@ -333,4 +333,7 @@ def train(network, train_set, n_epochs, batch_size,
         for upd in updates:
             upd(epoch)
 
+    # set the best parameters found
+    network.set_parameters(best_params)
+
     return best_params, train_losses, val_losses
