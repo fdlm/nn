@@ -337,3 +337,23 @@ def train(network, train_set, n_epochs, batch_size,
     network.set_parameters(best_params)
 
     return best_params, train_losses, val_losses
+
+
+class LearnRateSchedule:
+
+    def __init__(self, learn_rate, interval, factor):
+        """
+        Learn rate schedule
+        :param learn_rate:  shared variable containing the learn rate
+        :param interval:    after how many epochs to change the learn rate
+        :param factor:      by which factor to change the learn rate
+        """
+        self.interval = interval
+        self.factor = factor
+        self.learn_rate = learn_rate
+
+    def __call__(self, epoch):
+        if epoch % self.interval == 0:
+            self.learn_rate.set_value(
+                self.learn_rate.get_value() * self.factor
+            )
