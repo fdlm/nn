@@ -353,7 +353,7 @@ class LearnRateSchedule:
         self.learn_rate = learn_rate
 
     def __call__(self, epoch):
-        if epoch % self.interval == 0:
-            self.learn_rate.set_value(
-                self.learn_rate.get_value() * self.factor
+        if (epoch + 1) % self.interval == 0:
+            self.learn_rate.set_value(np.float32(
+                self.learn_rate.get_value() * self.factor)
             )
