@@ -125,7 +125,15 @@ def avg_batch_loss(batches, func, timer=None):
     return total_loss / n_batches
 
 
-def avg_batch_loss_acc(batches, func):
+def onehot_correct(pred, targ):
+    return pred.argmax(1) == targ.argmax(1)
+
+
+def binwise_correct(pred, targ):
+    return ((pred > 0.5) == (targ > 0.5)).all(axis=1)
+
+
+def avg_batch_loss_acc(batches, func, acc_func=onehot_correct):
     total_loss = 0.
     total_correct = 0.
     total_weight = 0.
@@ -138,7 +146,7 @@ def avg_batch_loss_acc(batches, func):
         p = pred.reshape(-1, pred.shape[-1])  # flatten predictions and gt
         t = batch[-1].reshape(-1, pred.shape[-1])
 
-        correct_predictions = p.argmax(1) == t.argmax(1)
+        correct_predictions = acc_func(p, t)
         if len(batch) < 3:  # no mask!
             total_correct += correct_predictions.mean()
             total_weight += 1
@@ -223,7 +231,7 @@ def predict_rnn(network, dataset, batch_size,
 def train(network, train_set, n_epochs, batch_size,
           validation_set=None, early_stop=np.inf, early_stop_acc=False,
           threaded=None, batch_iterator=dmgr.iterators.iterate_batches,
-          save_params=False, updates=None, **kwargs):
+          save_params=False, updates=None, acc_func=onehot_correct, **kwargs):
     """
     Trains a neural network.
     :param network:        NeuralNetwork object.
@@ -246,6 +254,7 @@ def train(network, train_set, n_epochs, batch_size,
                            be used to update learn rates, for example.
                            unctions have to accept one parameter, which is the
                            epoch number
+    :param acc_func:       which function to use to compute validation accuracy
     :param kwargs:         parameters to pass to the batch_iterator
     :return:               best found parameters. if validation set is given,
                            the parameters that have the smallest loss on the
@@ -295,7 +304,8 @@ def train(network, train_set, n_epochs, batch_size,
             )
             if threaded:
                 batches = dmgr.iterators.threaded(batches, threaded)
-            val_loss, val_acc = avg_batch_loss_acc(batches, network.test)
+            val_loss, val_acc = avg_batch_loss_acc(batches, network.test,
+                                                   acc_func)
             val_losses.append(val_loss)
             val_accs.append(val_acc)
 
