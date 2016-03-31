@@ -1,94 +1,131 @@
 from __future__ import print_function
-import sys
-import cPickle as pickle
-import numpy as np
-import lasagne as lnn
-import dmgr
-from madmom.evaluation import SimpleEvaluation
 
+try:
+    import cPickle as pickle
+except:
+    import pickle
+
+import sys
+
+import numpy as np
+import theano
+
+import dmgr
+import lasagne as lnn
 from utils import Timer, Colors
 
+# simple aliases
+get_params = lnn.layers.get_all_param_values
+set_params = lnn.layers.set_all_param_values
 
-class NeuralNetwork(object):
+
+def save_params(network, filename):
     """
-    Neural Network. Simple class that holds theano functions for training,
-    testing, and processing, plus the lasagne output layer.
+    Saves the neural network's parameters (weights, biases, ...) to a file.
+    :param network:  lasagne neural network
+    :param filename: file to store the parameters to
     """
+    with open(filename, 'w') as f:
+        pickle.dump(get_params(network), f, protocol=-1)
 
-    def __init__(self, network, train, test, process):
-        """
-        Initialises the neural network class.
 
-        :param network: lasagne neural network output layer
-        :param train:   theano function for training
-        :param test:    theano function for testing
-        :param process: theano function to process data, without computing loss
-        """
-        self.network = network
-        self.train = train
-        self.test = test
-        self.process = process
+def load_params(network, filename):
+    """
+    Loads the neural network's parameters from a file.
+    :param network:  lasagne neural network
+    :param filename: file to load the parameters from
+    """
+    with open(filename, 'r') as f:
+        params = pickle.load(f)
+        set_params(network, params)
 
-    def get_parameters(self):
-        """
-        Get the neural network's parameters (weights, biases, ...)
-        :return: parameterse
-        """
-        return lnn.layers.get_all_param_values(self.network)
 
-    def set_parameters(self, parameters):
-        """
-        Sets the neural network's parameters (weights, biases, ...)
-        :param parameters: parameters to be set
-        """
-        lnn.layers.set_all_param_values(self.network, parameters)
+def to_string(network):
+    """
+    Writes the layers of a neural network to a string
+    :return: string containing a human-readable description of the
+             network's layers
+    """
+    repr_str = ''
 
-    def save_parameters(self, filename):
-        """
-        Saves the neural network's parameters (weights, biases, ...) to a file.
-        :param filename: file to store the parameters to
-        """
-        with open(filename, 'w') as f:
-            pickle.dump(self.get_parameters(), f, protocol=-1)
+    skip_next = False
 
-    def load_parameters(self, filename):
-        """
-        Loads the neural network's parameters from a file.
-        :param filename: file to load the parameters from
-        """
-        with open(filename, 'r') as f:
-            params = pickle.load(f)
-        self.set_parameters(params)
+    for layer in lnn.layers.get_all_layers(network):
+        if skip_next:
+            skip_next = False
+            continue
 
-    def __str__(self):
-        """
-        Writes the layers of a neural network to a string
-        :return: string containing a human-readable description of the
-                 network's layers
-        """
-        repr_str = ''
+        if isinstance(layer, lnn.layers.DropoutLayer):
+            repr_str += '\t -> dropout p = {:g}\n'.format(layer.p)
+            continue
+        if isinstance(layer, lnn.layers.BatchNormLayer):
+            repr_str += '\t -> batch norm\n'
+            # skip next layer, which is the nonlinearity of the original
+            # layer
+            skip_next = True
+            continue
 
-        skip_next = False
+        repr_str += '\t{} - {}\n'.format(layer.output_shape, layer.name)
 
-        for layer in lnn.layers.get_all_layers(self.network):
-            if skip_next:
-                skip_next = False
-                continue
+    # return everything except the last newline
+    return repr_str[:-1]
 
-            if isinstance(layer, lnn.layers.DropoutLayer):
-                repr_str += '\t -> dropout p = {:g}\n'.format(layer.p)
-                continue
-            if isinstance(layer, lnn.layers.BatchNormLayer):
-                repr_str += '\t -> batch norm\n'
-                # skip next layer, which is the nonlinearity of the original
-                # layer
-                skip_next = True
-                continue
 
-            repr_str += '\t{} - {}\n'.format(layer.output_shape, layer.name)
+def compile_train_fn(network, input_var, target_var, loss_fn, opt_fn, l1, l2,
+                     mask_var=None):
+    # create train function
+    prediction = lnn.layers.get_output(network)
 
-        # return everything except the last newline
-        return repr_str[:-1]
+    # compute loss
+    l1 = lnn.regularization.regularize_network_params(
+        network, lnn.regularization.l1) * l1
+    l2 = lnn.regularization.regularize_network_params(
+        network, lnn.regularization.l2) * l2
+
+    if mask_var:
+        loss = loss_fn(prediction, target_var, mask_var) + l2 + l1
+    else:
+        loss = loss_fn(prediction, target_var) + l2 + l1
+
+    # compile train function
+    params = lnn.layers.get_all_params(network, trainable=True)
+    updates = opt_fn(loss, params)
+
+    if mask_var:
+        train_fn = theano.function(
+            [input_var, mask_var, target_var], loss, updates=updates)
+    else:
+        train_fn = theano.function(
+            [input_var, target_var], loss, updates=updates)
+
+    return train_fn
+
+
+def compile_test_func(network, input_var, target_var, loss_fn, l2, l1,
+                      mask_var=None):
+    prediction = lnn.layers.get_output(network, deterministic=True)
+    l1 = lnn.regularization.regularize_network_params(
+        network, lnn.regularization.l1) * l1
+    l2 = lnn.regularization.regularize_network_params(
+        network, lnn.regularization.l2) * l2
+
+    if mask_var:
+        loss = loss_fn(prediction, target_var, mask_var) + l2 + l1
+        return theano.function(
+            [input_var, mask_var, target_var], [loss, prediction])
+    else:
+        loss = loss_fn(prediction, target_var) + l2 + l1
+        return theano.function([input_var, target_var], [loss, prediction])
+
+
+def compile_process_func(network, input_var, mask_var=None):
+    # create process function. process just computes the prediction
+    # without computing the loss, and thus does not need target labels
+    prediction = lnn.layers.get_output(network, deterministic=True)
+    if mask_var:
+        return theano.function([input_var, mask_var], prediction)
+    else:
+        return theano.function([input_var], prediction)
 
 
 def avg_batch_loss(batches, func, timer=None):
@@ -125,15 +162,15 @@ def avg_batch_loss(batches, func, timer=None):
     return total_loss / n_batches
 
 
-def onehot_correct(pred, targ):
+def onehot_acc(pred, targ):
     return pred.argmax(1) == targ.argmax(1)
 
 
-def binwise_correct(pred, targ):
-    return ((pred > 0.5) == (targ > 0.5)).all(axis=1)
+def elemwise_acc(pred, targ, thresh=0.5):
+    return ((pred > thresh) == (targ > thresh)).all(axis=1)
 
 
-def avg_batch_loss_acc(batches, func, acc_func=onehot_correct):
+def avg_batch_loss_acc(batches, func, acc_func=onehot_acc):
     total_loss = 0.
     total_correct = 0.
     total_weight = 0.
@@ -177,79 +214,31 @@ def predict(network, dataset, batch_size,
     return np.vstack(predictions)
 
 
-def evaluate(network, dataset, batch_size, eval_func,
-             batch_iterator=dmgr.iterators.iterate_batches,
-             **kwargs):
-    """
-    Processes the dataset and evaluates the results, assuming the targets
-    are in one-hot notation
-    :param network:        neural network used for prediction
-    :param dataset:        dataset to process
-    :param batch_size:     processing batch size
-    :param eval_func:      function computing tp, fp, tn, fn given predictions
-                           and targets
-    :param batch_iterator: which iterator to use
-    :param kwargs:         additional parameters for the batch_iterator
-    :return:               madmom SimpleEvaluation
-    """
-
-    batches = batch_iterator(
-        dataset, batch_size, shuffle=False, expand=False, **kwargs
-    )
-
-    total_eval = SimpleEvaluation()
-
-    for batch in batches:
-        # skip the targets (last element)
-        pred = network.process(*(batch[:-1]))
-        total_eval += SimpleEvaluation(*eval_func(pred, batch[-1]))
-
-    return total_eval
-
-
-def predict_rnn(network, dataset, batch_size,
-                batch_iterator=dmgr.iterators.iterate_datasources, **kwargs):
-    """
-    Processes the dataset and return predictions for each instance.
-    """
-
-    predictions = []
-
-    batches = batch_iterator(
-        dataset, batch_size, shuffle=False, expand=False, **kwargs
-    )
-
-    for batch in batches:
-        # skip the targets (last element)
-        p = network.process(*(batch[:-1]))
-        mask = batch[-2]
-        predictions.append(p[mask.astype(bool)])
-
-    return np.vstack(predictions)
-
-
-def train(network, train_set, n_epochs, batch_size,
-          validation_set=None, early_stop=np.inf, early_stop_acc=False,
-          threaded=None, batch_iterator=dmgr.iterators.iterate_batches,
-          save_params=False, updates=None, acc_func=onehot_correct, **kwargs):
+def train(network, train_fn, train_set, num_epochs, batch_size,
+          test_fn=None, validation_set=None, early_stop=np.inf,
+          early_stop_acc=False, batch_iterator=dmgr.iterators.iterate_batches,
+          threaded=None, save_epoch_params=False, updates=None,
+          acc_func=onehot_acc, **kwargs):
     """
     Trains a neural network.
-    :param network:        NeuralNetwork object.
+    :param network:        lasagne neural network
+    :param train_fn:       theano function that updates the network parameters
     :param train_set:      dataset to use for training (see dmgr.datasources)
-    :param n_epochs:       maximum number of epochs to train
+    :param num_epochs:       maximum number of epochs to train
     :param batch_size:     batch size for training
+    :param test_fn:        theano function that computes the loss.
     :param validation_set: dataset to use for validation (see dmgr.datasources)
     :param early_stop:     number of iterations without loss improvement on
                            validation set that stops training
     :param early_stop_acc: sets if early stopping should be based on the loss
                            or the accuracy on the training set
+    :param batch_iterator: batch iterator to use
     :param threaded:       number of batches to prepare in a separate thread
                            if 'None', do not use threading
-    :param batch_iterator: batch iterator to use
-    :param save_params:    save neural network parameters after each epoch. If
-                           False, do not save. Provide a filename with an int
-                           formatter so the epoch number can be inserted if you
-                           want to save the parameters.
+    :param save_epoch_params: save neural network parameters after each epoch.
+                           If False, do not save. Provide a filename with an
+                           int formatter so the epoch number can be inserted
+                           if you want to save the parameters.
     :param updates:        List of functions to call after each epoch. Can
                            be used to update learn rates, for example.
                            unctions have to accept one parameter, which is the
@@ -262,18 +251,22 @@ def train(network, train_set, n_epochs, batch_size,
                            parameters after the last epoch
     """
 
+    if bool(test_fn) != bool(validation_set):
+        raise ValueError('If test function is given, validation set is '
+                         'necessary (and vice-versa)!')
+
     best_val = np.inf if not early_stop_acc else 0.0
     epochs_since_best_val_loss = 0
 
     if updates is None:
         updates = []
 
-    best_params = network.get_parameters()
+    best_params = get_params(network)
     train_losses = []
     val_losses = []
     val_accs = []
 
-    for epoch in range(n_epochs):
+    for epoch in range(num_epochs):
         timer = Timer()
         timer.start('epoch')
         timer.start('train')
@@ -285,9 +278,7 @@ def train(network, train_set, n_epochs, batch_size,
             train_batches = dmgr.iterators.threaded(train_batches, threaded)
 
         try:
-            train_losses.append(
-                avg_batch_loss(train_batches, network.train, timer)
-            )
+            train_losses.append(avg_batch_loss(train_batches, train_fn, timer))
         except RuntimeError as e:
             print(Colors.red('Error during training:'), file=sys.stderr)
             print(Colors.red(str(e)), file=sys.stderr)
@@ -295,8 +286,8 @@ def train(network, train_set, n_epochs, batch_size,
 
         timer.stop('train')
 
-        if save_params:
-            network.save_parameters(save_params.format(epoch))
+        if save_epoch_params:
+            save_params(network, save_epoch_params.format(epoch))
 
         if validation_set:
             batches = batch_iterator(
@@ -304,13 +295,12 @@ def train(network, train_set, n_epochs, batch_size,
             )
             if threaded:
                 batches = dmgr.iterators.threaded(batches, threaded)
-            val_loss, val_acc = avg_batch_loss_acc(batches, network.test,
-                                                   acc_func)
+            val_loss, val_acc = avg_batch_loss_acc(batches, test_fn, acc_func)
             val_losses.append(val_loss)
             val_accs.append(val_acc)
 
         print('Ep. {}/{} {:.1f}s (tr: {:.1f}s th: {:.1f}s)'.format(
-            epoch + 1, n_epochs,
+            epoch + 1, num_epochs,
             timer['epoch'], timer['train'], timer['theano']),
             end='')
         print('  tl: {:.6f}'.format(train_losses[-1]), end='')
@@ -321,7 +311,7 @@ def train(network, train_set, n_epochs, batch_size,
             if cmp_val < best_val:
                 epochs_since_best_val_loss = 0
                 best_val = cmp_val
-                best_params = network.get_parameters()
+                best_params = get_params(network)
                 # green output
                 c = Colors.green
             else:
@@ -336,7 +326,7 @@ def train(network, train_set, n_epochs, batch_size,
                 print(Colors.yellow('\nEARLY STOPPING!'))
                 break
         else:
-            best_params = network.get_parameters()
+            best_params = get_params(network)
 
         print('')
 
@@ -344,23 +334,22 @@ def train(network, train_set, n_epochs, batch_size,
             upd(epoch)
 
     # set the best parameters found
-    network.set_parameters(best_params)
-
-    return best_params, train_losses, val_losses
+    set_params(network, best_params)
+    return train_losses, val_losses, val_accs
 
 
 class LearnRateSchedule:
 
-    def __init__(self, learn_rate, interval, factor):
+    def __init__(self, learning_rate, interval, factor):
         """
         Learn rate schedule
-        :param learn_rate:  shared variable containing the learn rate
+        :param learning_rate:  shared variable containing the learn rate
         :param interval:    after how many epochs to change the learn rate
         :param factor:      by which factor to change the learn rate
         """
         self.interval = interval
         self.factor = factor
-        self.learn_rate = learn_rate
+        self.learn_rate = learning_rate
 
     def __call__(self, epoch):
         if (epoch + 1) % self.interval == 0:

@@ -1,3 +1,2 @@
 from . import utils
-from nn import (NeuralNetwork, train, predict, predict_rnn, evaluate,
-                LearnRateSchedule)
+from nn import *
