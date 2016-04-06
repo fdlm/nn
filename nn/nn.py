@@ -217,8 +217,8 @@ def predict(network, dataset, batch_size,
 def train(network, train_fn, train_set, num_epochs, batch_size,
           test_fn=None, validation_set=None, early_stop=np.inf,
           early_stop_acc=False, batch_iterator=dmgr.iterators.iterate_batches,
-          threaded=None, save_epoch_params=False, updates=None,
-          acc_func=onehot_acc, **kwargs):
+          threaded=None, save_epoch_params=False, callbacks=None,
+          acc_func=onehot_acc, train_acc=False, **kwargs):
     """
     Trains a neural network.
     :param network:        lasagne neural network
@@ -239,11 +239,18 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
                            If False, do not save. Provide a filename with an
                            int formatter so the epoch number can be inserted
                            if you want to save the parameters.
-    :param updates:        List of functions to call after each epoch. Can
-                           be used to update learn rates, for example.
-                           unctions have to accept one parameter, which is the
-                           epoch number
+    :param callbacks:      List of functions to call after each epoch. Can
+                           be used to update learn rates or plot data.
+                           functions have to accept the following parameters:
+                           current epoch number, lists of per-epoch
+                           train losses, train accuracies, validation losses,
+                           validation accuracies. The last three lists may be
+                           empty.
     :param acc_func:       which function to use to compute validation accuracy
+    :param train_acc:      compute accuracy for training set. in this case,
+                           the training loss will be also re-computed after
+                           an epoch, which leads to smaller train losses than
+                           when not using this parameter.
     :param kwargs:         parameters to pass to the batch_iterator
     :return:               best found parameters. if validation set is given,
                            the parameters that have the smallest loss on the
@@ -258,13 +265,17 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
     best_val = np.inf if not early_stop_acc else 0.0
     epochs_since_best_val_loss = 0
 
-    if updates is None:
-        updates = []
+    if callbacks is None:
+        callbacks = []
+
+    if callbacks is None:
+        callbacks = []
 
     best_params = get_params(network)
     train_losses = []
     val_losses = []
     val_accs = []
+    train_accs = []
 
     for epoch in range(num_epochs):
         timer = Timer()
@@ -291,7 +302,7 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
 
         if validation_set:
             batches = batch_iterator(
-                validation_set, batch_size, shuffle=False, **kwargs
+                validation_set, 500, shuffle=False, **kwargs
             )
             if threaded:
                 batches = dmgr.iterators.threaded(batches, threaded)
@@ -299,11 +310,24 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
             val_losses.append(val_loss)
             val_accs.append(val_acc)
 
+        if train_acc:
+            batches = batch_iterator(
+                train_set, batch_size, shuffle=False, **kwargs
+            )
+            if threaded:
+                batches = dmgr.iterators.threaded(batches, threaded)
+            train_loss, tr_acc = avg_batch_loss_acc(batches, test_fn, acc_func)
+            train_losses[-1] = train_loss
+            train_accs.append(tr_acc)
+
         print('Ep. {}/{} {:.1f}s (tr: {:.1f}s th: {:.1f}s)'.format(
             epoch + 1, num_epochs,
             timer['epoch'], timer['train'], timer['theano']),
             end='')
         print('  tl: {:.6f}'.format(train_losses[-1]), end='')
+
+        if train_acc:
+            print('  tacc: {:.6f}'.format(tr_acc), end='')
 
         if validation_set:
             # early stopping
@@ -330,12 +354,12 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
 
         print('')
 
-        for upd in updates:
-            upd(epoch)
+        for cb in callbacks:
+            cb(epoch, train_losses, val_losses, train_accs, val_accs)
 
     # set the best parameters found
     set_params(network, best_params)
-    return train_losses, val_losses, val_accs
+    return train_losses, val_losses, train_accs, val_accs
 
 
 class LearnRateSchedule:
