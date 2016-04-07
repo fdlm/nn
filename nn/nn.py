@@ -252,54 +252,64 @@ def predict(network, dataset, batch_size,
     return np.vstack(predictions)
 
 
-def train(network, train_fn, train_set, num_epochs, batch_size,
-          test_fn=None, validation_set=None, early_stop=np.inf,
-          early_stop_acc=False, batch_iterator=dmgr.iterators.iterate_batches,
-          val_batch_iterator=None,
-          threaded=None, save_epoch_params=False, callbacks=None,
-          acc_func=onehot_acc, train_acc=False, **kwargs):
+def train(network, num_epochs, train_fn, train_batches, test_fn=None,
+          validation_batches=None, threads=None, early_stop=np.inf,
+          early_stop_acc=False, save_epoch_params=False, callbacks=None,
+          acc_func=onehot_acc, train_acc=False):
     """
-    Trains a neural network.
-    :param network:        lasagne neural network
-    :param train_fn:       theano function that updates the network parameters
-    :param train_set:      dataset to use for training (see dmgr.datasources)
-    :param num_epochs:       maximum number of epochs to train
-    :param batch_size:     batch size for training
-    :param test_fn:        theano function that computes the loss.
-    :param validation_set: dataset to use for validation (see dmgr.datasources)
-    :param early_stop:     number of iterations without loss improvement on
-                           validation set that stops training
-    :param early_stop_acc: sets if early stopping should be based on the loss
-                           or the accuracy on the training set
-    :param batch_iterator: batch iterator to use
-    :param val_batch_iterator: batch iterator to use for validation. if None,
-                           use batch_iterator
-    :param threaded:       number of batches to prepare in a separate thread
-                           if 'None', do not use threading
-    :param save_epoch_params: save neural network parameters after each epoch.
-                           If False, do not save. Provide a filename with an
-                           int formatter so the epoch number can be inserted
-                           if you want to save the parameters.
-    :param callbacks:      List of functions to call after each epoch. Can
-                           be used to update learn rates or plot data.
-                           functions have to accept the following parameters:
-                           current epoch number, lists of per-epoch
-                           train losses, train accuracies, validation losses,
-                           validation accuracies. The last three lists may be
-                           empty.
-    :param acc_func:       which function to use to compute validation accuracy
-    :param train_acc:      compute accuracy for training set. in this case,
-                           the training loss will be also re-computed after
-                           an epoch, which leads to smaller train losses than
-                           when not using this parameter.
-    :param kwargs:         parameters to pass to the batch_iterator
-    :return:               best found parameters. if validation set is given,
-                           the parameters that have the smallest loss on the
-                           validation set. if no validation set is given,
-                           parameters after the last epoch
+    Train a neural network by updating its parameters.
+
+    Parameters
+    ----------
+    network : lasagne neural network handle
+        Network to be trained.
+    num_epochs: int
+        Maximum number of epochs to train
+    train_fn : theano function
+        Function that computes the loss and updates the network parameters.
+        Takes parameters from the batch iterators
+    train_batches : batch iterator
+        Iterator that yields mini batches from the training set. Must be able
+        to re-iterate multiple times.
+    test_fn : theano function
+        Function that computes loss and predictions of the network.
+        Takes parameters from the batch iterators.
+    validation_batches : batch iterator
+        Iterator that yields mini batches from the validation set. Must be able
+        to re-iterate multiple times.
+    threads : int
+        Number of threads to use to prepare mini batches. If None, use
+        a single thread.
+    early_stop : int
+        Number of iterations without loss improvement on validation set that
+        stops training.
+    early_stop_acc : boolean
+        Use validation accuracy instead of loss for early stopping.
+    save_epoch_params : str or False
+        Save neural network parameters after each epoch. If False, do not save.
+        If you want to save the parameters, provide a filename with an
+        int formatter so the epoch number can be inserted.
+    callbacks : list of callables
+        List of callables to call after each training epoch. Can be used to k
+        update learn rates or plot data. Functions have to accept the
+        following parameters: current epoch number, lists of per-epoch train
+        losses, train accuracies, validation losses, validation accuracies.
+        The last three lists may be empty, depending on other parameters.
+    acc_func : callable
+        Function to use to compute accuracies.
+    train_acc : boolean
+        Also compute accuracy for training set. In this case, the training
+        loss will be also re-computed after an epoch, which leads to lower
+        train losses than when not using this parameter.
+
+    Returns
+    -------
+    tuple of four lists
+        Train losses, trian accuracies, validation losses,
+        validation accuracies for each epoch
     """
 
-    if bool(test_fn) != bool(validation_set):
+    if (test_fn is not None) != (validation_batches is not None):
         raise ValueError('If test function is given, validation set is '
                          'necessary (and vice-versa)!')
 
@@ -312,27 +322,27 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
     if callbacks is None:
         callbacks = []
 
-    val_batch_iterator = val_batch_iterator or batch_iterator
-
     best_params = get_params(network)
     train_losses = []
     val_losses = []
     val_accs = []
     train_accs = []
 
+    if threads is not None:
+        def threaded(it):
+            return dmgr.iterators.threaded(it, threads)
+    else:
+        def threaded(it):
+            return it
+
     for epoch in range(num_epochs):
         timer = Timer()
         timer.start('epoch')
         timer.start('train')
 
-        train_batches = batch_iterator(
-            train_set, batch_size, shuffle=True, **kwargs)
-
-        if threaded:
-            train_batches = dmgr.iterators.threaded(train_batches, threaded)
-
         try:
-            train_losses.append(avg_batch_loss(train_batches, train_fn, timer))
+            train_losses.append(
+                avg_batch_loss(threaded(train_batches), train_fn, timer))
         except RuntimeError as e:
             print(Colors.red('Error during training:'), file=sys.stderr)
             print(Colors.red(str(e)), file=sys.stderr)
@@ -343,23 +353,15 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
         if save_epoch_params:
             save_params(network, save_epoch_params.format(epoch))
 
-        if validation_set:
-            batches = val_batch_iterator(
-                validation_set, 500, shuffle=False, **kwargs
-            )
-            if threaded:
-                batches = dmgr.iterators.threaded(batches, threaded)
-            val_loss, val_acc = avg_batch_loss_acc(batches, test_fn, acc_func)
+        if validation_batches:
+            val_loss, val_acc = avg_batch_loss_acc(
+                threaded(validation_batches), test_fn, acc_func)
             val_losses.append(val_loss)
             val_accs.append(val_acc)
 
         if train_acc:
-            batches = val_batch_iterator(
-                train_set, batch_size, shuffle=False, **kwargs
-            )
-            if threaded:
-                batches = dmgr.iterators.threaded(batches, threaded)
-            train_loss, tr_acc = avg_batch_loss_acc(batches, test_fn, acc_func)
+            train_loss, tr_acc = avg_batch_loss_acc(
+                threaded(train_batches), test_fn, acc_func)
             train_losses[-1] = train_loss
             train_accs.append(tr_acc)
 
@@ -372,7 +374,7 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
         if train_acc:
             print('  tacc: {:.6f}'.format(tr_acc), end='')
 
-        if validation_set:
+        if validation_batches:
             # early stopping
             cmp_val = val_losses[-1] if not early_stop_acc else -val_accs[-1]
             if cmp_val < best_val:
