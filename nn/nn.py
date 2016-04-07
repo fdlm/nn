@@ -21,9 +21,15 @@ set_params = lnn.layers.set_all_param_values
 
 def save_params(network, filename):
     """
-    Saves the neural network's parameters (weights, biases, ...) to a file.
-    :param network:  lasagne neural network
-    :param filename: file to store the parameters to
+    Save the neural network's parameters (weights, biases, ...) to a
+    pickle file.
+
+    Parameters
+    ----------
+    network : lasagne neural network handle
+        Neural Network of which the parameters should be saved
+    filename : string
+        Name of the file in which the parameters should be saved.
     """
     with open(filename, 'w') as f:
         pickle.dump(get_params(network), f, protocol=-1)
@@ -31,9 +37,14 @@ def save_params(network, filename):
 
 def load_params(network, filename):
     """
-    Loads the neural network's parameters from a file.
-    :param network:  lasagne neural network
-    :param filename: file to load the parameters from
+    Load a neural network's parameters from a pickle file.
+
+    Parameters
+    ----------
+    network : lasagne neural network handle
+        Neural network to load to parameters for
+    filename : string
+        Name of the file where parameters are stored
     """
     with open(filename, 'r') as f:
         params = pickle.load(f)
@@ -42,9 +53,17 @@ def load_params(network, filename):
 
 def to_string(network):
     """
-    Writes the layers of a neural network to a string
-    :return: string containing a human-readable description of the
-             network's layers
+    Create a string representation of a lasagne neural network
+
+    Parameters
+    ----------
+    network : lasagne neural network handle
+        Neural network to convert to a string
+
+    Returns
+    -------
+    string
+        string containing a human-readable description of the network's layers
     """
     repr_str = ''
 
@@ -73,7 +92,26 @@ def to_string(network):
 
 def compile_train_fn(network, input_var, target_var, loss_fn, opt_fn, l1, l2,
                      mask_var=None):
-    # create train function
+    """
+    Compiles a Theano function that can be used to optise the parameters
+    of a given neural network
+
+    Parameters
+    ----------
+    network : lasagne neural network handle
+        Neural network whose parameters are to be trained
+    input_var :
+    target_var :
+    loss_fn :
+    opt_fn :
+    l1 :
+    l2 :
+    mask_var :
+
+    Returns
+    -------
+
+    """
     prediction = lnn.layers.get_output(network)
 
     # compute loss
@@ -217,6 +255,7 @@ def predict(network, dataset, batch_size,
 def train(network, train_fn, train_set, num_epochs, batch_size,
           test_fn=None, validation_set=None, early_stop=np.inf,
           early_stop_acc=False, batch_iterator=dmgr.iterators.iterate_batches,
+          val_batch_iterator=None,
           threaded=None, save_epoch_params=False, callbacks=None,
           acc_func=onehot_acc, train_acc=False, **kwargs):
     """
@@ -233,6 +272,8 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
     :param early_stop_acc: sets if early stopping should be based on the loss
                            or the accuracy on the training set
     :param batch_iterator: batch iterator to use
+    :param val_batch_iterator: batch iterator to use for validation. if None,
+                           use batch_iterator
     :param threaded:       number of batches to prepare in a separate thread
                            if 'None', do not use threading
     :param save_epoch_params: save neural network parameters after each epoch.
@@ -271,6 +312,8 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
     if callbacks is None:
         callbacks = []
 
+    val_batch_iterator = val_batch_iterator or batch_iterator
+
     best_params = get_params(network)
     train_losses = []
     val_losses = []
@@ -301,7 +344,7 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
             save_params(network, save_epoch_params.format(epoch))
 
         if validation_set:
-            batches = batch_iterator(
+            batches = val_batch_iterator(
                 validation_set, 500, shuffle=False, **kwargs
             )
             if threaded:
@@ -311,7 +354,7 @@ def train(network, train_fn, train_set, num_epochs, batch_size,
             val_accs.append(val_acc)
 
         if train_acc:
-            batches = batch_iterator(
+            batches = val_batch_iterator(
                 train_set, batch_size, shuffle=False, **kwargs
             )
             if threaded:
