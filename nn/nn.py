@@ -67,6 +67,9 @@ def to_string(network):
     """
     repr_str = ''
 
+    # this indicates if we need to skip the next layer. it is used when
+    # printing batchnorm layers, since they are followed by a non-linearity
+    # layer
     skip_next = False
 
     for layer in lnn.layers.get_all_layers(network):
@@ -91,7 +94,7 @@ def to_string(network):
 
 
 def compile_train_fn(network, input_var, target_var, loss_fn, opt_fn, l1, l2,
-                     mask_var=None):
+                     mask_var=None, tags=None):
     """
     Compiles a Theano function that can be used to optise the parameters
     of a given neural network
@@ -107,18 +110,22 @@ def compile_train_fn(network, input_var, target_var, loss_fn, opt_fn, l1, l2,
     l1 :
     l2 :
     mask_var :
+    tags :
 
     Returns
     -------
 
     """
     prediction = lnn.layers.get_output(network)
+    tags = tags or {}
 
     # compute loss
+    reg_tags = {'regularizable': True}
+    reg_tags.update(tags)
     l1 = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l1) * l1
+        network, lnn.regularization.l1, tags=reg_tags) * l1
     l2 = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2) * l2
+        network, lnn.regularization.l2, tags=reg_tags) * l2
 
     if mask_var:
         loss = loss_fn(prediction, target_var, mask_var) + l2 + l1
@@ -126,7 +133,7 @@ def compile_train_fn(network, input_var, target_var, loss_fn, opt_fn, l1, l2,
         loss = loss_fn(prediction, target_var) + l2 + l1
 
     # compile train function
-    params = lnn.layers.get_all_params(network, trainable=True)
+    params = lnn.layers.get_all_params(network, trainable=True, **tags)
     updates = opt_fn(loss, params)
 
     if mask_var:
@@ -140,12 +147,16 @@ def compile_train_fn(network, input_var, target_var, loss_fn, opt_fn, l1, l2,
 
 
 def compile_test_func(network, input_var, target_var, loss_fn, l2, l1,
-                      mask_var=None):
+                      mask_var=None, tags=None):
+
+    reg_tags = {'regularizable': True}
+    reg_tags.update(tags or {})
+
     prediction = lnn.layers.get_output(network, deterministic=True)
     l1 = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l1) * l1
+        network, lnn.regularization.l1, tags=reg_tags) * l1
     l2 = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2) * l2
+        network, lnn.regularization.l2, tags=reg_tags) * l2
 
     if mask_var:
         loss = loss_fn(prediction, target_var, mask_var) + l2 + l1
