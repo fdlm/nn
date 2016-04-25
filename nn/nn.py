@@ -431,7 +431,7 @@ class LearnRateSchedule:
         self.factor = factor
         self.learn_rate = learning_rate
 
-    def __call__(self, epoch):
+    def __call__(self, epoch, *args, **kwargs):
         if (epoch + 1) % self.interval == 0:
             self.learn_rate.set_value(np.float32(
                 self.learn_rate.get_value() * self.factor)
