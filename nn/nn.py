@@ -138,7 +138,7 @@ def compile_train_fn(network, input_var, target_var, loss_fn, opt_fn, l1, l2,
 
     if mask_var:
         train_fn = theano.function(
-            [input_var, mask_var, target_var], loss, updates=updates)
+            [input_var, target_var, mask_var], loss, updates=updates)
     else:
         train_fn = theano.function(
             [input_var, target_var], loss, updates=updates)
@@ -161,7 +161,7 @@ def compile_test_func(network, input_var, target_var, loss_fn, l2, l1,
     if mask_var:
         loss = loss_fn(prediction, target_var, mask_var) + l2 + l1
         return theano.function(
-            [input_var, mask_var, target_var], [loss, prediction])
+            [input_var, target_var, mask_var], [loss, prediction])
     else:
         loss = loss_fn(prediction, target_var) + l2 + l1
         return theano.function([input_var, target_var], [loss, prediction])
