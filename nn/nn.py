@@ -170,7 +170,12 @@ def compile_test_func(network, input_var, target_var, loss_fn, l2, l1,
 def compile_process_func(network, input_var, mask_var=None):
     # create process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
-    prediction = lnn.layers.get_output(network, deterministic=True)
+
+    if isinstance(network, lnn.layers.Layer):
+        prediction = lnn.layers.get_output(network, deterministic=True)
+    else:
+        prediction = network
+
     if mask_var:
         return theano.function([input_var, mask_var], prediction)
     else:
@@ -230,14 +235,14 @@ def avg_batch_loss_acc(batches, func, acc_func=onehot_acc):
         n_batches += 1
         total_loss += loss
         p = pred.reshape(-1, pred.shape[-1])  # flatten predictions and gt
-        t = batch[-1].reshape(-1, pred.shape[-1])
+        t = batch[1].reshape(-1, pred.shape[-1])
 
         correct_predictions = acc_func(p, t)
         if len(batch) < 3:  # no mask!
             total_correct += correct_predictions.mean()
             total_weight += 1
         else:  # we have a mask!
-            m = batch[1].flatten()
+            m = batch[-1].flatten()
             total_correct += (correct_predictions * m).mean()
             total_weight += m.mean()
 
